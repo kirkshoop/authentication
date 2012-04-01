@@ -1,0 +1,13 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{9A1153D7-99D3-4B96-B8D2-40782217B0DD}]
+@="SCProvider"
+
+[HKEY_CLASSES_ROOT\CLSID\{9A1153D7-99D3-4B96-B8D2-40782217B0DD}]
+@="SCProvider"
+
+[HKEY_CLASSES_ROOT\CLSID\{9A1153D7-99D3-4B96-B8D2-40782217B0DD}\InprocServer32]
+@="C:\\scprovider\\SCProvider.dll"
+
+[HKEY_CLASSES_ROOT\CLSID\{9A1153D7-99D3-4B96-B8D2-40782217B0DD}\InprocServer32]
+"ThreadingModel"="Apartment"
