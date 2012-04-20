@@ -568,112 +568,303 @@ monitor_smartcard_readers(
 	return winerror;
 }
 
-template<typename T>
+template<typename Type, typename Notifier>
+struct producerqueue_traits_builder
+{
+	typedef
+		Type
+	type;
+
+	typedef
+		Notifier
+	notifier;
+};
+
+template<typename Tag>
 class producerqueue
 {
 public:
+	typedef
+		producerqueue<Tag>
+	this_type;
+
+	typedef 
+		Tag
+	tag;
+
+	typedef 
+		decltype(producerqueue_traits(tag()))
+	traits;
+
+	typedef 
+		typename traits::type
+	type;
+
+	typedef 
+		typename traits::notifier
+	notifier;
+
+private:
+	struct context
+	{
+		template<typename Produce>
+		context(notifier notifierArg, std::function<void()> cancelArg, Produce&& produce)
+			: cancel(std::move(cancelArg))
+			, produced(std::move(notifierArg))
+		{
+			unique_winerror winerror;
+
+			std::tie(winerror, exitevent) = lib::wr::winerror_and_event(CreateEvent(NULL, TRUE, FALSE, NULL));
+			winerror.throw_if("could not create exit event");
+
+			producer = std::thread(std::forward<Produce>(produce));
+		}
+
+		bool joinable()
+		{
+			return producer.joinable();
+		}
+
+		void join()
+		{
+			if (producer.joinable())
+			{
+				{
+					std::lock_guard<std::mutex> guardScope(guard);
+					SetEvent(exitevent.get());
+				}
+				if (cancel)
+				{
+					cancel();
+				}
+				producer.join();
+				{
+					std::lock_guard<std::mutex> guardScope(guard);
+					futures.clear();
+					exitevent.reset();
+				}
+			}
+		}
+
+		std::function<void()> cancel;
+
+		std::mutex guard;
+		std::vector<type> futures;
+		notifier produced;
+		lib::wr::unique_event exitevent;
+		std::thread producer;
+	};
+public:
+	class producer
+	{
+		friend class this_type;
+		producer(std::shared_ptr<context> sharedcontext)
+			: sharedcontext(std::move(sharedcontext))
+		{
+		}
+
+		std::shared_ptr<context> sharedcontext;
+
+	public:
+		producer()
+		{}
+
+		producer(producer&& other)
+			: sharedcontext(std::move(other.sharedcontext))
+		{}
+
+		producer(const producer& other)
+			: sharedcontext(other.sharedcontext)
+		{}
+
+		producer& operator=(producer other)
+		{
+			using std::swap;
+			swap(sharedcontext, other.sharedcontext);
+			return *this;
+		}
+
+		template<typename Item>
+		void push_back(Item&& item)
+		{
+			if (sharedcontext)
+			{
+				std::lock_guard<std::mutex> guardScope(sharedcontext->guard);
+				sharedcontext->futures.push_back(std::forward<Item>(item));
+				sharedcontext->produced.push();
+			}
+		}
+
+		HANDLE getexitevent()
+		{
+			return sharedcontext->exitevent.get();
+		}
+
+		void lock()
+		{
+			if (sharedcontext)
+			{
+				sharedcontext->guard.lock();
+			}
+		}
+
+		void unlock()
+		{
+			if (sharedcontext)
+			{
+				sharedcontext->guard.unlock();
+			}
+		}
+	};
+
+	class consumer
+	{
+		friend class this_type;
+		consumer(std::shared_ptr<context> sharedcontext)
+			: sharedcontext(std::move(sharedcontext))
+		{
+		}
+
+		std::shared_ptr<context> sharedcontext;
+
+	public:
+		consumer()
+		{}
+
+		consumer(consumer&& other)
+			: sharedcontext(std::move(other.sharedcontext))
+		{}
+
+		consumer(const consumer& other)
+			: sharedcontext(other.sharedcontext)
+		{}
+
+		consumer& operator=(consumer other)
+		{
+			using std::swap;
+			swap(sharedcontext, other.sharedcontext);
+			return *this;
+		}
+
+		type pop()
+		{
+			type item;
+			if (sharedcontext)
+			{
+				std::lock_guard<std::mutex> guardScope(sharedcontext->guard);
+				if (sharedcontext->futures.empty())
+				{
+					throw std::runtime_error("empty queue");
+				}
+				item = std::move(sharedcontext->futures.front());
+				sharedcontext->futures.erase(sharedcontext->futures.begin());
+				sharedcontext->produced.pop();
+			}
+			return std::move(item);
+		}
+
+		bool joinable()
+		{
+			return sharedcontext->joinable();
+		}
+
+		void join()
+		{
+			if (sharedcontext)
+			{
+				sharedcontext->join();
+			}
+		}
+
+		void lock()
+		{
+			if (sharedcontext)
+			{
+				sharedcontext->guard.lock();
+			}
+		}
+
+		void unlock()
+		{
+			if (sharedcontext)
+			{
+				sharedcontext->guard.unlock();
+			}
+		}
+	};
+
 	~producerqueue()
 	{
 		join();
 	}
 
+	producerqueue()
+	{
+	}
+
+	producerqueue(producerqueue&& other)
+		: sharedcontext(std::move(other.sharedcontext))
+	{
+	}
+
 	template<typename Produce>
-	producerqueue(std::function<void()> cancel, Produce&& produce)
-		: cancel(std::move(cancel))
+	producerqueue(notifier notifierArg, std::function<void()> cancel, Produce&& produce)
+		: sharedcontext(std::make_shared<context>(notifierArg, std::move(cancel), std::forward<Produce>(produce)))
 	{
-		unique_winerror winerror;
-
-		std::tie(winerror, producedevent) = lib::wr::winerror_and_event(CreateEvent(NULL, TRUE, FALSE, NULL));
-		winerror.throw_if("could not create futures available event");
-
-		std::tie(winerror, exitevent) = lib::wr::winerror_and_event(CreateEvent(NULL, TRUE, FALSE, NULL));
-		winerror.throw_if("could not create exit event");
-
-		producer = std::thread(std::forward<Produce>(produce));
 	}
 
-	T pop()
+	producerqueue& operator=(producerqueue other)
 	{
-		WaitForSingleObject(producedevent.get(), INFINITE);
-		T item;
+		using std::swap;
+		swap(sharedcontext, other.sharedcontext);
+		return *this;
+	}
+
+	bool joinable()
+	{
+		if (sharedcontext)
 		{
-			std::lock_guard<std::mutex> guardScope(guard);
-			if (futures.empty())
-			{
-				throw std::runtime_error("empty queue");
-			}
-			item = std::move(futures.front());
-			futures.erase(futures.begin());
-			if (futures.empty())
-			{
-				ResetEvent(producedevent.get());
-			}
+			std::lock_guard<std::mutex> guardScope(sharedcontext->guard);
+			return sharedcontext->producer.joinable() || sharedcontext->exitevent || !sharedcontext->futures.empty();
 		}
-		return std::move(item);
+		return false;
 	}
 
-	template<typename Item>
-	void push_back(Item&& item)
+	template<typename Produce>
+	void start(notifier notifierArg, std::function<void()> cancel, Produce&& produce)
 	{
-		std::lock_guard<std::mutex> guardScope(guard);
-		futures.push_back(std::forward<Item>(item));
-		SetEvent(producedevent.get());
+		sharedcontext = std::make_shared<context>(notifierArg, std::move(cancel), std::forward<Produce>(produce));
 	}
 
 	void join()
 	{
-		if (producer.joinable())
+		if (sharedcontext)
 		{
-			{
-				std::lock_guard<std::mutex> guardScope(guard);
-				SetEvent(exitevent.get());
-				if (cancel)
-				{
-					cancel();
-				}
-			}
-			producer.join();
+			sharedcontext->join();
 		}
 	}
 
-	HANDLE getexitevent()
+	producer getproducer()
 	{
-		return exitevent.get();
+		return producer(sharedcontext);
 	}
 
-	HANDLE getproducedevent()
+	consumer getconsumer()
 	{
-		return producedevent.get();
-	}
-
-	void lock()
-	{
-		guard.lock();
-	}
-
-	void unlock()
-	{
-		guard.unlock();
+		return consumer(sharedcontext);
 	}
 
 private:
-	producerqueue();
 	producerqueue(const producerqueue&);
-	producerqueue& operator=(const producerqueue&);
 
-	std::function<void()> cancel;
-
-	std::mutex guard;
-	std::vector<T> futures;
-	lib::wr::unique_event producedevent;
-	lib::wr::unique_event exitevent;
-	std::thread producer;
+	std::shared_ptr<context> sharedcontext;
 };
 
-
-class monitor_readers
+namespace reader_queue
 {
-public:
+	template<typename Notifier>
+	struct tag {};
+
 	struct readerstate
 	{
 		DWORD oldstate;
@@ -682,32 +873,48 @@ public:
 		std::vector<BYTE> atr;
 		std::wstring reader;
 	};
+	typedef std::vector<readerstate> type;
 
-	typedef std::vector<readerstate> readersstatus;
-	typedef producerqueue<readersstatus> output;
+	template<typename Notifier>
+	producerqueue_traits_builder<type, Notifier> producerqueue_traits(tag<Notifier>&&);
+}
 
-	monitor_readers()
-		: updates(
-			[&]() -> void
+template<typename Notifier>
+class monitor_readers
+{
+public:
+
+	typedef 
+		producerqueue<reader_queue::tag<Notifier>> 
+	output;
+
+	monitor_readers(Notifier notifierArg)
+	{
+		updates.start(
+			std::move(notifierArg),
+			[this]() -> void
 			{
+				std::lock_guard<output::producer> guardsharedcontext(this->updates.getproducer());
 				if (this->context)
 				{
 					SCardCancel(this->context);
 				}
 			},
-			[&]() -> void
+			[this]() -> void
 			{
+				std::lock_guard<output::producer> guardsharedcontext(this->updates.getproducer());
 				this->monitor();
 			}
-		)
-	{
+		);
 	}
 
 private:
 
 	void monitor()
 	{
-		HANDLE waitfor[2] = {SCardAccessStartedEvent(), updates.getexitevent()};
+		auto producer = this->updates.getproducer();
+
+		HANDLE waitfor[] = {SCardAccessStartedEvent(), producer.getexitevent()};
 		ON_UNWIND_AUTO([] {SCardReleaseStartedEvent();});
 
 		unique_winerror winerror;
@@ -717,12 +924,12 @@ private:
 			winerror = monitor_smartcard_readers(
 				[&](SCARDCONTEXT context)
 				{
-					std::lock_guard<output> guardsharedcontext(this->updates);
+					std::lock_guard<output::producer> guardsharedcontext(producer);
 					this->context = context;
 				},
 				[&]()
 				{
-					std::lock_guard<output> guardsharedcontext(this->updates);
+					std::lock_guard<output::producer> guardsharedcontext(producer);
 					this->context = NULL;
 				},
 				[&]() -> bool
@@ -750,7 +957,7 @@ private:
 						item.atr.assign(state.rgbAtr, state.rgbAtr + state.cbAtr);
 						update.push_back(item);
 					}
-					this->updates.push_back(update);
+					producer.push_back(update);
 				}
 			);
 			winerror.suppress();
@@ -762,9 +969,11 @@ public:
 	output updates;
 };
 
-class monitor_certificates
+namespace certificate_queue
 {
-public:
+	template<typename Notifier>
+	struct tag {};
+
 	struct cardstate
 	{
 		CardWithProvider state;
@@ -813,31 +1022,69 @@ public:
 		readerstate(const readerstate&);
 	};
 
-	typedef std::vector<readerstate> readersstatus;
-	typedef producerqueue<readersstatus> output;
+	typedef std::vector<readerstate> type;
+
+	template<typename Notifier>
+	producerqueue_traits_builder<type, Notifier> producerqueue_traits(tag<Notifier>&&);
+}
+
+template<typename Notifier>
+class monitor_certificates
+{
+public:
+
+	typedef 
+		producerqueue<certificate_queue::tag<Notifier>> 
+	output;
 
 	monitor_certificates()
-		: updates(
-			[&]() -> void
+	{
+	}
+
+	monitor_certificates(monitor_certificates&& other)
+		: context(NULL)
+		, updates(std::move(other.updates))
+	{
+	}
+
+	monitor_certificates& operator=(monitor_certificates other)
+	{
+		using std::swap;
+		context = NULL;
+		swap(updates, other.updates);
+	}
+
+	void start(Notifier notifierArg)
+	{
+		updates.start(
+			std::move(notifierArg),
+			[this]() -> void
 			{
+				std::lock_guard<output::producer> guardsharedcontext(this->updates.getproducer());
 				if (this->context)
 				{
 					SCardCancel(this->context);
 				}
 			},
-			[&]() -> void
+			[this]() -> void
 			{
 				this->monitor();
 			}
-		)
+		);
+	}
+
+	typename output::consumer getconsumer()
 	{
+		return updates.getconsumer();
 	}
 
 private:
 
 	void monitor()
 	{
-		HANDLE waitfor[2] = {SCardAccessStartedEvent(), updates.getexitevent()};
+		auto producer = this->updates.getproducer();
+
+		HANDLE waitfor[] = {SCardAccessStartedEvent(), producer.getexitevent()};
 		ON_UNWIND_AUTO([] {SCardReleaseStartedEvent();});
 
 		unique_winerror winerror;
@@ -847,12 +1094,12 @@ private:
 			winerror = monitor_smartcard_readers(
 				[&](SCARDCONTEXT context)
 				{
-					std::lock_guard<output> guardsharedcontext(this->updates);
+					std::lock_guard<output::producer> guardsharedcontext(producer);
 					this->context = context;
 				},
 				[&]()
 				{
-					std::lock_guard<output> guardsharedcontext(this->updates);
+					std::lock_guard<output::producer> guardsharedcontext(producer);
 					this->context = NULL;
 				},
 				[&]() -> bool
@@ -866,10 +1113,10 @@ private:
 				},
 				[&](lib::rng::range<SCARD_READERSTATE*> readersrange)
 				{
-					readersstatus update;
+					certificate_queue::type update;
 					for (auto& state : readersrange)
 					{
-						readerstate item;
+						certificate_queue::readerstate item;
 
 						item.newstate = state.dwEventState;
 						item.oldstate = state.dwCurrentState;
@@ -898,10 +1145,10 @@ private:
 
 							item.card = std::async(
 								std::launch::async,
-								[](const std::vector<BYTE>& atr) -> cardstate
+								[](const std::vector<BYTE>& atr) -> certificate_queue::cardstate
 								{
 									unique_winerror winerror;
-									cardstate output;
+									certificate_queue::cardstate output;
 
 									std::tie(winerror, output.state) = smartcard_name_and_provider(lib::rng::make_range_raw(atr));
 									winerror.throw_if("failed to read card name and provider");
@@ -917,7 +1164,7 @@ private:
 
 						update.emplace_back(std::move(item));
 					}
-					this->updates.push_back(std::move(update));
+					producer.push_back(std::move(update));
 				}
 			);
 			winerror.suppress();
@@ -925,7 +1172,6 @@ private:
 	}
 
 	SCARDCONTEXT context;
-public:
 	output updates;
 };
 

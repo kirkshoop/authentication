@@ -30,7 +30,22 @@
     <ClInclude Include="smartcardlogon.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Tile.h">
+    <ClInclude Include="com_CredentialProviderCredential.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="credential.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="provider.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="scard_creduiscenario.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="scard_monitor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="scenario.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

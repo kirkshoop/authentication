@@ -37,7 +37,6 @@ struct smartcardlogon
         /* [out] */ ICredentialProviderCredential **ppcpc);
 
 	credentialevents events;
-	smart_card::monitor_certificates monitor;
 private:
 	smartcardlogon(const smartcardlogon&);
 };

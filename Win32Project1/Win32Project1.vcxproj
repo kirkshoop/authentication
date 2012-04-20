@@ -89,10 +89,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="com_CredentialProvider.h" />
+    <ClInclude Include="com_CredentialProviderCredential.h" />
+    <ClInclude Include="credential.h" />
+    <ClInclude Include="provider.h" />
+    <ClInclude Include="scard_creduiscenario.h" />
+    <ClInclude Include="scard_monitor.h" />
+    <ClInclude Include="scenario.h" />
     <ClInclude Include="smartcardlogon.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
-    <ClInclude Include="Tile.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="credential.cpp" />

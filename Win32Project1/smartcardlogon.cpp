@@ -10,38 +10,40 @@ unique_hresult smartcardlogon::SetUsageScenario(
 {
 	return hresult_cast(E_NOTIMPL);
 }
-        
+
 unique_hresult smartcardlogon::SetSerialization( 
     /* [in] */ const CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs)
 {
 	return hresult_cast(E_NOTIMPL);
 }
-        
+
 unique_hresult smartcardlogon::Advise( 
     /* [in] */ ICredentialProviderEvents *pcpe,
     /* [in] */ UINT_PTR upAdviseContext)
 {
-	return hresult_cast(E_NOTIMPL);
+	events = credentialevents(pcpe, upAdviseContext);
+	return hresult_cast(S_OK);
 }
-        
+
 unique_hresult smartcardlogon::UnAdvise( void)
 {
-	return hresult_cast(E_NOTIMPL);
+	events = credentialevents();
+	return hresult_cast(S_OK);
 }
-        
+
 unique_hresult smartcardlogon::GetFieldDescriptorCount( 
     /* [out] */ DWORD *pdwCount)
 {
 	return hresult_cast(E_NOTIMPL);
 }
-        
+
 unique_hresult smartcardlogon::GetFieldDescriptorAt( 
     /* [in] */ DWORD dwIndex,
     /* [out] */ CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR **ppcpfd)
 {
 	return hresult_cast(E_NOTIMPL);
 }
-        
+
 unique_hresult smartcardlogon::GetCredentialCount( 
     /* [out] */ DWORD *pdwCount,
     /* [out] */ DWORD *pdwDefault,
@@ -49,7 +51,7 @@ unique_hresult smartcardlogon::GetCredentialCount(
 {
 	return hresult_cast(E_NOTIMPL);
 }
-        
+
 unique_hresult smartcardlogon::GetCredentialAt( 
     /* [in] */ DWORD dwIndex,
     /* [out] */ ICredentialProviderCredential **ppcpc)

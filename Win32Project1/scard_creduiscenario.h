@@ -6,7 +6,7 @@ struct scard_creduiscenario
 	scard_creduiscenario(scard_creduiscenario&& other)
 		: events(std::move(other.events))
 		, scenarioFlags(other.scenarioFlags)
-		//, monitor(std::move(other.monitor))
+		, monitor(std::move(other.monitor))
 		, tiles(std::move(other.tiles))
 	{}
 
@@ -39,13 +39,48 @@ struct scard_creduiscenario
         /* [in] */ DWORD dwIndex,
         /* [out] */ ICredentialProviderCredential **ppcpc);
 
-	struct Tile
+	struct NoReadersTile
 	{
 	};
 
-	credentialevents events;
+	struct EmptyReaderTile
+	{
+	};
+
+	struct CardErrorTile
+	{
+	};
+
+	struct CertificateTile
+	{
+	};
+
+	typedef
+		lib::of::one_of<typename lib::tv::factory<NoReadersTile, EmptyReaderTile, CardErrorTile, CertificateTile>::type>
+	Tile;
+
+	struct WindowNotifier
+	{
+		explicit WindowNotifier(HWND window)
+			: window(window)
+		{}
+
+		void push()
+		{
+			PostMessage(window, WM_USER+1, 0, 0);
+		}
+
+		void pop()
+		{
+		}
+
+		HWND window;
+	};
+
 	DWORD scenarioFlags;
-	//smart_card::monitor_certificates monitor;
+	lib::wr::unique_close_window window;
+	credentialevents events;
+	smart_card::monitor_certificates<WindowNotifier> monitor;
 	std::vector<std::shared_ptr<Tile>> tiles;
 private:
 	scard_creduiscenario(const scard_creduiscenario&);
